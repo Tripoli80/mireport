@@ -17,7 +17,7 @@ async function getDealsInPipeline(category) {
   return response.data;
 }
 
-async function getAllDealsWithBatch(category) {
+async function getAllDealsWithBatch(category, closed = "N") {
   // Получите общее количество сделок
   const firstResponse = await getDealsInPipeline(category);
   const totalDeals = firstResponse.total;
@@ -29,9 +29,10 @@ async function getAllDealsWithBatch(category) {
   // Формирование запросов батча
   const calls = {};
   for (let i = 0; i < batchCount; i++) {
+
     calls[`deals_batch_${i}`] = `crm.deal.list?start=${
       i * batchSize
-    }&order[ID]=ASC&filter[CATEGORY_ID]=${category}&select[]=ID&select[]=TITLE&select[]=ASSIGNED_BY_ID`;
+    }&order[ID]=ASC&filter[CATEGORY_ID]=${category}&filter[CLOSED]=${closed}&select[]=ID&select[]=TITLE&select[]=ASSIGNED_BY_ID`;
   }
 
   // Выполните батч-запрос
@@ -42,6 +43,8 @@ async function getAllDealsWithBatch(category) {
   for (const key in batchResults) {
     allDeals.push(...batchResults[key]);
   }
+  allDeals.forEach((deal) => {if (deal.ID == "672")
+    console.log("🚀 ~ file: activities-services.js:165 ~ activity:");});
 
   return allDeals;
 }
@@ -52,7 +55,7 @@ async function getActivitiesForDeals(deals) {
   deals.forEach((deal, index) => {
     calls[
       `call_${index}`
-    ] = `crm.activity.list?filter[OWNER_TYPE_ID]=2&filter[OWNER_ID]=${deal.ID}`;
+    ] = `crm.activity.list?filter[OWNER_TYPE_ID]=2&filter[OWNER_ID]=${deal.ID}&select="*"&select="COMMUNICATIONS"&select="ORIGIN_VERSION"`;
   });
 
   const activities = await batchRequest(calls);
@@ -124,10 +127,24 @@ function groupDealsByManager(deals) {
         deals: [],
       };
     }
+    const {
+      activeToday,
+      activeOverdue,
+      hasActivities,
+      notOverdueButModified,
+      lastActivityDate,
+      TITLE,
+      ID,
+    } = deal;
 
     managers[deal.ASSIGNED_BY_ID].deals.push({
-      id: deal.ID,
-      TITLE: deal.TITLE,
+      id: ID,
+      TITLE,
+      activeToday,
+      activeOverdue,
+      hasActivities,
+      notOverdueButModified,
+      lastActivityDate,
       activity: deal.activities,
     });
   });
@@ -135,7 +152,7 @@ function groupDealsByManager(deals) {
   return Object.values(managers);
 }
 
-async function  processDeals(deals) {
+async function processDeals(deals) {
   const currentDate = new Date();
   currentDate.setHours(0, 0, 0, 0); // Установить время на начало текущего дня
 
@@ -147,6 +164,7 @@ async function  processDeals(deals) {
     let lastActivityDate = null;
 
     deal.activities.forEach((activity) => {
+  
       const endTime = new Date(activity.END_TIME);
 
       if (activity.COMPLETED === "N") {
@@ -155,16 +173,21 @@ async function  processDeals(deals) {
         if (endTime >= currentDate) {
           activeToday++;
         } else {
+         
           activeOverdue++;
         }
 
-        if (activity.LAST_UPDATED !== activity.END_TIME) {
-          notOverdueButModified++;
-        }
+        // if (activity.LAST_UPDATED > activity.CREATED) { if (deal.ID == "672")
+        //     console.log(
+        //       "🚀 ~ file: activities-services.js:165 ~ activity:",
+        //       activity
+        //     );
+        //   notOverdueButModified++;
+        // }
       }
 
-      if (!lastActivityDate || endTime > lastActivityDate) {
-        lastActivityDate = endTime;
+      if (!lastActivityDate || activity.LAST_UPDATED > lastActivityDate) {
+        lastActivityDate = activity.LAST_UPDATED;
       }
     });
 
@@ -175,12 +198,12 @@ async function  processDeals(deals) {
     deal.lastActivityDate = lastActivityDate;
   });
 
-  console.log("🚀 ~ file: activities-services.js:180 ~ deals:", deals)
+  // console.log("🚀 ~ file: activities-services.js:180 ~ deals:", deals);
   return deals;
 }
 
 activitiesService.getActivities = async ({ category }) => {
-  const pipelineId = 4;
+ 
   const deals = await getAllDealsWithBatch(category);
 
   await getActivitiesForDeals(deals);
