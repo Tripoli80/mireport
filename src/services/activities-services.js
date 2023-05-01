@@ -6,10 +6,13 @@ dotenv.config();
 const activitiesService = {};
 const webhookUrl = process.env.BX_API;
 
-async function getDealsInPipeline(category) {
+async function getDealsInPipeline(category, closed) {
+  let filter = category ? { CATEGORY_ID: category } : {};
+  if (closed) filter = { ...filter, CLOSED: closed };
+
   const response = await axios.get(`${webhookUrl}/crm.deal.list`, {
     params: {
-      filter: { CATEGORY_ID: category },
+      filter,
       select: ["ID", "TITLE", "ASSIGNED_BY_ID"],
     },
   });
@@ -17,9 +20,9 @@ async function getDealsInPipeline(category) {
   return response.data;
 }
 
-async function getAllDealsWithBatch(category, closed = "N") {
+async function getAllDealsWithBatch(category, closed) {
   // Получите общее количество сделок
-  const firstResponse = await getDealsInPipeline(category);
+  const firstResponse = await getDealsInPipeline(category, closed);
   const totalDeals = firstResponse.total;
   const batchSize = 50;
 
@@ -29,10 +32,13 @@ async function getAllDealsWithBatch(category, closed = "N") {
   // Формирование запросов батча
   const calls = {};
   for (let i = 0; i < batchCount; i++) {
-
-    calls[`deals_batch_${i}`] = `crm.deal.list?start=${
+    let value = `crm.deal.list?start=${
       i * batchSize
-    }&order[ID]=ASC&filter[CATEGORY_ID]=${category}&filter[CLOSED]=${closed}&select[]=ID&select[]=TITLE&select[]=ASSIGNED_BY_ID`;
+    }&order[ID]=ASC&select[]=ID&select[]=TITLE&select[]=ASSIGNED_BY_ID`;
+    value = category ? `${value}&filter[CATEGORY_ID]=${category}` : value;
+    value = closed ? `${value}&filter[CLOSED]=${closed}` : value;
+
+    calls[`deals_batch_${i}`] = value;
   }
 
   // Выполните батч-запрос
@@ -43,8 +49,11 @@ async function getAllDealsWithBatch(category, closed = "N") {
   for (const key in batchResults) {
     allDeals.push(...batchResults[key]);
   }
-  allDeals.forEach((deal) => {if (deal.ID == "672")
-    console.log("🚀 ~ file: activities-services.js:165 ~ activity:");});
+
+  allDeals.forEach((deal) => {
+    if (deal.ID == "672")
+      console.log("🚀 ~ file: activities-services.js:165 ~ activity:");
+  });
 
   return allDeals;
 }
@@ -107,6 +116,7 @@ async function batchRequest(calls) {
 
   return result;
 }
+
 function chunkArray(array, chunkSize) {
   const chunks = [];
   for (let i = 0; i < array.length; i += chunkSize) {
@@ -114,8 +124,7 @@ function chunkArray(array, chunkSize) {
   }
   return chunks;
 }
-getAllDealsWithBatch;
-getAllDealsWithBatch;
+
 function groupDealsByManager(deals) {
   const managers = {};
 
@@ -135,6 +144,7 @@ function groupDealsByManager(deals) {
       lastActivityDate,
       TITLE,
       ID,
+      activities,
     } = deal;
 
     managers[deal.ASSIGNED_BY_ID].deals.push({
@@ -145,7 +155,7 @@ function groupDealsByManager(deals) {
       hasActivities,
       notOverdueButModified,
       lastActivityDate,
-      activity: deal.activities,
+      activity: activities,
     });
   });
 
@@ -164,7 +174,6 @@ async function processDeals(deals) {
     let lastActivityDate = null;
 
     deal.activities.forEach((activity) => {
-  
       const endTime = new Date(activity.END_TIME);
 
       if (activity.COMPLETED === "N") {
@@ -173,7 +182,6 @@ async function processDeals(deals) {
         if (endTime >= currentDate) {
           activeToday++;
         } else {
-         
           activeOverdue++;
         }
 
@@ -202,9 +210,8 @@ async function processDeals(deals) {
   return deals;
 }
 
-activitiesService.getActivities = async ({ category }) => {
- 
-  const deals = await getAllDealsWithBatch(category);
+activitiesService.getActivities = async ({ category, closed }) => {
+  const deals = await getAllDealsWithBatch(category, closed);
 
   await getActivitiesForDeals(deals);
   await getManagerNames(deals);

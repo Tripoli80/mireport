@@ -3,8 +3,8 @@ import authService from "../services/activities-services.js";
 
 
 export const getActivities = async (req, res, next) => {
-  const {category}=req.query
+  const {category, closed}=req.query
 
-  const result = await activitiesService.getActivities({category})
+  const result = await activitiesService.getActivities({ category, closed });
   res.status(201).json(result);
 };
